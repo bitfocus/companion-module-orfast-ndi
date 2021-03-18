@@ -1,0 +1,26 @@
+{
+	"name": "orfast-ndi",
+	"version": "1.0.0",
+	"api_version": "1.0.0",
+	"keywords": [
+		"NDI"
+	],
+	"manufacturer": "Orfast",
+	"product": "NDI Viewer",
+	"shortname": "orfast-ndi",
+	"description": "Module to control Orfast NDI Viewer",
+	"main": "index.js",
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/bitfocus/companion-module-orfast-ndi.git"
+	},
+	"author": "Joseph Adams <josephdadams@gmail.com>",
+	"license": "MIT",
+	"bugs": {
+		"url": "https://github.com/bitfocus/companion-module-orfast-ndi/issues"
+	},
+	"homepage": "https://github.com/bitfocus/companion-module-orfast-ndi#readme"
+}

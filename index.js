@@ -4,10 +4,8 @@ var instance_skel = require('../../instance_skel');
 var debug;
 var log;
 
-var crypto = require('crypto');
-
 function instance(system, id, config) {
-	var self = this;
+	let self = this;
 
 	// super-constructor
 	instance_skel.apply(this, arguments);
@@ -19,40 +17,71 @@ function instance(system, id, config) {
 
 instance.prototype.video_outputs = [];
 instance.prototype.ndi_sources = [];
-
+instance.prototype.TIMER = null;
 
 /**
  * Config updated by the user.
  */
 instance.prototype.updateConfig = function(config) {
-	var self = this;
+	let self = this;
 	self.config = config;
+
+	self.status(self.STATE_OK);
+	self.get_video_outputs();
+	self.get_ndi_sources();
+	self.init_timer();
 };
 
 /**
  * Initializes the module.
  */
 instance.prototype.init = function() {
-	var self = this;
+	let self = this;
 
 	self.status(self.STATE_OK);
 	self.get_video_outputs();
 	self.get_ndi_sources();
+	self.init_timer();
+};
+
+instance.prototype.getData = function() {
+	let self = this;
+
+	self.get_video_outputs.bind(self)();
+	self.get_ndi_sources.bind(self)();
+};
+
+instance.prototype.init_timer = function() {
+	let self = this;
+
+	if (self.TIMER !== null) {
+		clearInterval(self.TIMER);
+		self.TIMER = null;
+	}
+
+	if (self.config.polling_rate > 0) {
+		self.TIMER = setInterval(self.getData.bind(self), self.config.polling_rate);
+	}
 };
 
 instance.prototype.get_video_outputs = function() {
-	var self = this;
+	let self = this;
 
 	let cmd = `/v1/vo`;
 	self.getRest(cmd, {}).then(function(result) {
 		// Success
 		self.video_outputs = [];
-		for (let i = 0; i < result.data['vo_channels'].length; i++) {
-			let name = result.data['vo_channels'][i]['name'];
-
-			let videoOutputObj = { id: name, label: name };
-			self.video_outputs.push(videoOutputObj);
+		if (result.data['vo_channels'].length > 0) {
+			self.video_outputs.push({ id: '-1', label: '(select an output)' });
+			for (let i = 0; i < result.data['vo_channels'].length; i++) {
+				let name = result.data['vo_channels'][i]['name'];
+				self.video_outputs.push({ id: name, label: name });
+			}
 		}
+		else {
+			self.video_outputs.push({ id: '-1', label: '(No Video Outputs found.)' });
+		}
+		
 		self.actions(); //republish list of actions because of new video outputs
 	}).catch(function(message) {
 		self.log('error', self.config.host + ' : ' + message);
@@ -61,18 +90,23 @@ instance.prototype.get_video_outputs = function() {
 };
 
 instance.prototype.get_ndi_sources = function() {
-	var self = this;
+	let self = this;
 
 	let cmd = `/v1/ndi`;
 	self.getRest(cmd, {}).then(function(result) {
 		// Success
 		self.ndi_sources = [];
-		for (let i = 0; i < result.data['ndi_source_list'].length; i++) {
-			let ndiName = result.data['ndi_source_list'][i]['name'];
-
-			let ndiSourceObj = { id: ndiName, label: ndiName };
-			self.ndi_sources.push(ndiSourceObj);
+		if (result.data['ndi_source_list'].length > 0) {
+			self.ndi_sources.push({ id: '---', label: '---' });
+			for (let i = 0; i < result.data['ndi_source_list'].length; i++) {
+				let ndiName = result.data['ndi_source_list'][i]['name'];
+				self.ndi_sources.push({ id: ndiName, label: ndiName });
+			}
 		}
+		else {
+			self.ndi_sources.push({ id: '---', label: '---' });
+		}
+		
 		self.actions(); //republish list of actions because of new NDI sources
 	}).catch(function(message) {
 		self.log('error', self.config.host + ' : ' + message);
@@ -81,32 +115,37 @@ instance.prototype.get_ndi_sources = function() {
 };
 
 instance.prototype.setChannel = function(vo, ndi, audio) {
-	var self = this;
+	let self = this;
 
-	let cmd = `/v1/${vo}`;
-	let body = {};
-
-	if (ndi) {
-		body.ndiSource = ndi;
-	}
-
-	if (audio) {
-		body.mute_audio = audio;
-	}
+	if (vo !== '-1') {
+		let cmd = `/v1/${vo}`;
+		let body = {};
 	
-	self.postRest(cmd, body).then(function(result) {
-		// Success
-	}).catch(function(message) {
-		self.log('error', self.config.host + ' : ' + message);
-		self.status(self.STATE_ERROR);
-	});
+		if (ndi) {
+			body.ndisource = ndi;
+		}
+		else {
+			body.ndisource = '---';
+		}
+	
+		if (audio) {
+			body.mute_audio = audio;
+		}
+		
+		self.postRest(cmd, body).then(function(result) {
+			// Success
+		}).catch(function(message) {
+			self.log('error', self.config.host + ' : ' + message);
+			self.status(self.STATE_ERROR);
+		});
+	}
 };
 
 /**
  * Return config fields for web config.
  */
 instance.prototype.config_fields = function() {
-	var self = this;
+	let self = this;
 
 	return [
 		{
@@ -114,7 +153,7 @@ instance.prototype.config_fields = function() {
 			id: 'info',
 			width: 12,
 			label: 'Information',
-			value: 'This module will control OrFast NDI.'
+			value: 'This module will control Orfast NDI.'
 		},
 		{
 			type: 'textinput',
@@ -130,6 +169,15 @@ instance.prototype.config_fields = function() {
 			default: 4242,
 			width: 4,
 			regex: self.REGEX_PORT
+		},
+		{
+			type: 'number',
+			id: 'polling_rate',
+			label: 'Polling Rate',
+			tooltip: 'The rate in milliseconds at which data should be polled for new video outputs and NDI sources. Set to 0 (zero) to disable.',
+			default: '10000',
+			required: true,
+			regex: self.NUMBER
 		}
 	];
 
@@ -140,7 +188,11 @@ instance.prototype.config_fields = function() {
  * Cleanup when the module gets deleted.
  */
 instance.prototype.destroy = function() {
-	var self = this;
+	let self = this;
+	if (self.TIMER !== null) {
+		clearInterval(self.TIMER);
+		self.TIMER = null;
+	}
 	debug("destroy");
 };
 
@@ -149,7 +201,7 @@ instance.prototype.destroy = function() {
  * Populates the supported actions.
  */
 instance.prototype.actions = function(system) {
-	var self = this;
+	let self = this;
 
 	self.setActions({
 		'set_channel': {
@@ -224,7 +276,7 @@ instance.prototype.actions = function(system) {
  * @return              A Promise that's resolved after the GET.
  */
 instance.prototype.getRest = function(cmd, body) {
-	var self = this;
+	let self = this;
 	return self.doRest('GET', cmd, body);
 };
 
@@ -236,7 +288,7 @@ instance.prototype.getRest = function(cmd, body) {
  * @return              A Promise that's resolved after the POST.
  */
 instance.prototype.postRest = function(cmd, body) {
-	var self = this;
+	let self = this;
 	return self.doRest('POST', cmd, body);
 };
 
@@ -248,8 +300,8 @@ instance.prototype.postRest = function(cmd, body) {
  * @param body          If POST, an object containing the POST's body
  */
 instance.prototype.doRest = function(method, cmd, body) {
-	var self = this;
-	var url  = self.makeUrl(cmd);
+	let self = this;
+	let url  = self.makeUrl(cmd);
 
 	return new Promise(function(resolve, reject) {
 
@@ -259,7 +311,7 @@ instance.prototype.doRest = function(method, cmd, body) {
 				resolve(result);
 			} else {
 				// Failure. Reject the promise.
-				var message = 'Unknown error';
+				let message = 'Unknown error';
 
 				if (result !== undefined) {
 					if (result.response !== undefined) {
@@ -309,8 +361,8 @@ instance.prototype.doRest = function(method, cmd, body) {
  * @param action
  */
 instance.prototype.action = function(action) {
-	var self = this;
-	var opt = action.options;
+	let self = this;
+	let opt = action.options;
 
 	let audio;
 
@@ -344,7 +396,7 @@ instance.prototype.action = function(action) {
  * @param body          The body of the POST content
  */
 instance.prototype.doCommand = function(cmd, body) {
-	var self = this;
+	let self = this;
 	body = body || {};
 
 	self.postRest(cmd, body).then(function(objJson) {
@@ -360,7 +412,7 @@ instance.prototype.doCommand = function(cmd, body) {
  * @param cmd           Must start with a /
  */
 instance.prototype.makeUrl = function(cmd) {
-	var self = this;
+	let self = this;
 
 	if (cmd[0] !== '/') {
 		throw new Error('cmd must start with a /');
